@@ -1,0 +1,273 @@
+#%%
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+import nltk, re,string
+from nltk.corpus import stopwords
+from string import punctuation
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+base_website = 'https://www.airlinequality.com/airline-reviews/british-airways'
+page = 10 
+page_size = 100
+
+reviews = []
+
+
+for i in range (1, page+1):
+    print(f"Scraping page {i}")
+    url = f"{base_website}/page/{i}/?sortby=post_date%3ADesc&pagesize={page_size}"
+    response = requests.get(url)
+    content = response.content
+    parsed_content = BeautifulSoup(content,'html.parser')
+    for para in parsed_content.find_all('div',{"class":"text_content"}):
+        reviews.append(para.get_text())
+    print(f" ---->{len(reviews)} total reviews")
+    
+#let's try review # 500 
+reviews[500]
+
+#create dataframe with column name reviews
+df=pd.DataFrame()
+df['reviews']= reviews
+
+'''Data Cleaning:'''
+#csv_path= 'BritishAirWays'
+#df1= pd.read_csv(csv_path)
+df.reset_index(drop=True, inplace=True)
+print(df['reviews'])
+df.info()
+df.describe()
+
+df['reviews']=df['reviews'].str.strip()
+df['reviews']= df['reviews'].str.strip('✅ Trip Verified ')
+df['reviews']=df['reviews'].str.strip('Not Verified |')
+print(df)
+
+
+def clean_reviews(text):
+    text = text.lower()
+    words= text
+    text=''.join(words)
+    return text
+df['cleaned'] = df['reviews'].apply(clean_reviews)
+df.head(10)
+
+#textblob:
+from textblob import TextBlob
+
+def polarity_calc(text):
+    try:
+        return TextBlob(text).sentiment.polarity
+    except:
+        return None
+    
+def tag_cal(num):
+    if num<0:
+        return 'Negative'
+    elif num >0:
+        return 'Positive'
+    else:
+        return 'Neutral'
+    
+df['Polarity']=df['reviews'].apply(polarity_calc)
+df['tag']= df['Polarity'].apply(tag_cal)
+print(df)
+
+
+from wordcloud import WordCloud 
+text= ' '
+for ind in df.index:
+    if df['tag'][ind] == 'Positive':
+        text= text+ df['reviews'][ind]
+wordcloud_positive= WordCloud().generate(text)
+
+plt.imshow(wordcloud_positive,interpolation='bilinear')
+plt.axis('off')
+plt.show()
+
+text2= ' '
+for ind in df.index:
+    if df['tag'][ind] == 'Negative':
+        text2 = text+ df['reviews'][ind]
+wordcloud_positive= WordCloud().generate(text2)
+
+plt.imshow(wordcloud_positive,interpolation='bilinear')
+plt.axis('off')
+plt.show()
+
+
+''''''
+#Visualization:
+df['tag'].value_counts().plot(kind='bar')
+sns.set(font_scale=1.4)
+df['tag'].value_counts().plot(kind='bar', figsize=(7, 6), rot=0)
+plt.xlabel('Sentiment', labelpad= 14)
+plt.ylabel('No of reviews', labelpad=14)
+plt.title('sentient count', y= 1.02);
+
+plt.title('Positive & Nigative & Neutral')
+df['labeling'].value_counts().plot.pie(autopct='%1.2f%%')
+
+VCdf=df['labeling'].value_counts().to_frame()
+sns.countplot(x='labeling', data= df)
+
+#Percentage:
+(df.groupby('tag').size()/df['tag'].count())*100
+'''
+plt.figure(figsize=(20,15))
+wc= WordCloud(max_words= 1000, width= 1600, height= 800).generate(" ".join(df.reviews))
+plt.imshow(wc, interpolation= "bilinear")
+'''
+# Using vader method:
+#pip install vaderSentiment
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+nltk.download('vader_lexicon')
+Analyzer= SentimentIntensityAnalyzer()
+df['Vpolarity']= [Analyzer.polarity_scores(x)['compound']
+                  for x in df['cleaned']]
+def Vtag(num):
+    if num >= 0.05:
+        return 'Positive'
+    elif num <= -0.05:
+        return 'Negative'
+    else:
+        return 'Neutral'
+    
+df['Vtag']= df['Vpolarity'].apply(Vtag)
+
+# Percentae:
+(df.groupby('Vtag').size()/df['Vtag'].count())*100
+
+
+#df.to_csv('BritishAirWays')
+
+''''''
+def labeling(tag):
+    if tag == 'Positive':
+        return ("1")
+    elif tag == 'Negative':
+        return ("0") 
+    else:
+        return ('2')
+df['labeling'] = df['tag'].apply(labeling) 
+df['Vlabeling'] = df['Vtag'].apply(labeling) 
+''''''
+
+'''# Now let's evaluating each technique
+from sklearn import metrics
+from sklearn.metrics import accuracy_score
+
+#textblob performance
+accuracy_score(df['tag'])'''
+
+
+#splittiing the dataset
+from sklearn import metrics
+from sklearn.metrics import accuracy_score, precision_score
+from sklearn.model_selection import train_test_split
+
+x= df.cleaned
+y= df.labelling
+
+x_train, x_test, y_train, y_test = train_test_split
+(x,y, test_size=0.30, stratify=y, random_state=0) 
+
+tfidf_vectorizer_10 = TfidfVectorizer
+(stop_words='english',max_df=0.8, ngram_range= (1,10))
+tfidf_train_10 = tfidf_vectorizer_10.fit_transform(x_train)
+tfidf_test_10 = tfidf_vectorizer_10.transform(x_test) 
+
+mnb_tf_10gram=MultinomialNB()
+mnb_tf_10gram.fit(tfidf_train_10,y_train)
+
+pred_mnb10 = mnb_tf_10gram.predict(tfidf_test_10)
+acc= accuracy_score(y_test,pred_mnb10)
+acc # 0.64
+
+''''''
+Vy = df.Vlabeling
+x_train, x_test, Vy_train, Vy_test = train_test_split(x,Vy, test_size=0.30, stratify=y, random_state=0) 
+
+mnb_tf_10gram=MultinomialNB()
+mnb_tf_10gram.fit(tfidf_train_10,Vy_train)
+
+pred_mnb10 = mnb_tf_10gram.predict(tfidf_test_10)
+acc= accuracy_score(Vy_test,pred_mnb10)
+acc 
+
+''''''
+df.to_csv('C:/Users/LENOVO/Desktop/internship/British Airways/BritishAirWays')
+
+'''''''
+
+#Bow
+from nltk.stem import PorterStemmer
+corpus = []
+pstem= PorterStemmer()
+for i in range(df['cleaned'].shape[0]):
+     review= df['cleaned'][i]
+     review= review.split()
+     review= [pstem.stem(word) for word in review if not word in set
+     (stopwords.words('english'))]
+     reviews= ' '.join (review)
+     corpus.append(reviews)
+print('corpus created successfully')
+
+uniqueWordFrequents = {}
+for review in corpus:
+    for word in review.split():
+        if(word in uniqueWordFrequents.keys()):
+            uniqueWordFrequents[word] += 1
+        else:
+            uniqueWordFrequents[word] = 1
+
+
+uniqueWordFrequents = pd.DataFrame.from_dict(uniqueWordFrequents,orient='index',
+                                             columns=['Word Frequent'])
+uniqueWordFrequents.sort_values(by=['Word Frequent'], inplace=True, ascending=False)
+uniqueWordFrequents.head(10)
+uniqueWordFrequents['Word Frequent'].unique()
+uniqueWordFrequents = uniqueWordFrequents[uniqueWordFrequents['Word Frequent'] >= 20]
+print(uniqueWordFrequents.shape)
+
+uniqueWordFrequents
+
+from sklearn.feature_extraction.text import CountVectorizer
+counVec = CountVectorizer(max_features = uniqueWordFrequents.shape[0])
+bagOfWords = counVec.fit_transform(corpus).toarray()
+
+b = bagOfWords
+y = df.labeling 
+
+b_train , b_test , y_train , y_test = train_test_split(b,y,test_size=0.20, 
+                            random_state=55, shuffle =True)
+print('data splitting successfully')
+
+multinomialNBModel = MultinomialNB(alpha=0.1)
+multinomialNBModel.fit(b_train,y_train)
+print("multinomialNB model run successfully")
+
+Bow_mnb_pred = multinomialNBModel.predict(b_test)
+Bow_acc= accuracy_score(y_test,Bow_mnb_pred)
+
+Bow_acc #0.69
+
+''''''
+b = bagOfWords
+vy2 = df.Vlabeling 
+
+b_train , b_test , vy2_train , vy2_test = train_test_split(b,vy2,test_size=0.20, 
+                            random_state=55, shuffle =True)
+print('data splitting successfully')
+
+multinomialNBModel = MultinomialNB(alpha=0.1)
+multinomialNBModel.fit(b_train,vy2_train)
+print("multinomialNB model run successfully")
+
+Bow_mnb_pred2 = multinomialNBModel.predict(b_test)
+Bow_acc2= accuracy_score(vy2_test,Bow_mnb_pred2)
+Bow_acc2 #0.7
+
+
